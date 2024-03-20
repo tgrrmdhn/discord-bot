@@ -1,25 +1,59 @@
+import asyncio
+import logging
+import logging.handlers
+from typing import Optional
+from aiohttp import ClientSession
 import discord
 from discord.ext import commands
-import asyncio
+from dotenv import load_dotenv
 import os
-from help_cog import help_cog
-from commands_cog import commands_cog
+
+load_dotenv()
 
 
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+class projectA(commands.Bot):
+    def __init__(
+            self,
+            *args,
+            web_client: ClientSession,
+            testing_guild_id: Optional[int]=None,
+            **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.web_client = web_client
+        self.testing_guild_id = testing_guild_id
 
-bot.remove_command("help")
+    async def setup_hook(self) -> None:
+        for filename in os.listdir("./extensions"):
+            if filename.endswith(".py"):
+                await self.load_extension(f"extensions.{filename[:-3]}")
+        if self.testing_guild_id:
+            guild = discord.Object(self.testing_guild_id)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
 
 async def main():
-    async with bot:
-        await bot.add_cog(help_cog(bot))
-        await bot.add_cog(commands_cog(bot))
-        await bot.start(os.getenv("TOKEN"))
-
-@bot.event
-async def on_ready():
-    await bot.tree.sync()
-    print("Bot is ready to use")
+    logger = logging.getLogger('discord')
+    logger.setLevel(logging.INFO)
+    handler = logging.handlers.RotatingFileHandler(
+        filename='discord.log',
+        encoding='utf-8',
+        maxBytes=32*1024*1024,
+        backupCount=5
+    )
+    dt_fmt = '%Y-%m-%d %H:%M:%S'
+    formatter = logging.Formatter('[{asctime}] [{levelname:<8}] {name}: {message}', dt_fmt, style='{')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    async with ClientSession() as our_client:
+        intents = discord.Intents.default()
+        intents.message_content = True
+        async with projectA(
+            commands.when_mentioned,
+            web_client=our_client,
+            intents=intents
+        ) as bot:
+            bot.remove_command('help')
+            await bot.start(os.getenv('TOKEN'))
 
 asyncio.run(main())
